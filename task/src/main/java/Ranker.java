@@ -1,14 +1,71 @@
 import com.mongodb.client.*;
+import com.mongodb.client.model.Aggregates;
 import org.bson.Document;
 
+import java.io.*;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Scanner;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
+import org.bson.Document;
+import org.jsoup.Connection;
+import org.jsoup.Jsoup;
 public class Ranker {
+        public static String findParagraphWithWord(String filePath, String targetWord) {
+            StringBuilder paragraph = new StringBuilder();
+            boolean found = false;
+
+            try (BufferedReader br = new BufferedReader(new FileReader(filePath))) {
+                String line;
+                while ((line = br.readLine()) != null) {
+
+                        String cleanLine = removeHtmlTags(line);
+                        String[] words = cleanLine.split("\\s+");
+                    if (words.length>10) {
+                        for(int i=0;i<words.length;i++)
+                        {
+                            if(words[i].equals(targetWord))
+                            {
+                                found = true;
+                                if(i<=20)
+                                {
+                                    int up= Math.min(words.length, 20);
+                                    for(int j=0;j<up;j++) {
+                                        paragraph.append(words[j]).append(" ");
+                                    }
+                                }
+                                else {
+                                    int up= Math.min(words.length, i+10);
+                                    for(int j=i-20;j<up;j++) {
+                                        paragraph.append(words[j]);
+                                    }
+                                }
+                                return paragraph.toString();
+                            }
+                        }
+                    }
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            return "The word '" + targetWord + "' was not found in the HTML file.";
+        }
+
+    private static String removeHtmlTags(String line) {
+        // Regular expression to match HTML tags
+        String htmlTagPattern = "<[^>]*>";
+
+        // Remove HTML tags using regular expression
+        Pattern pattern = Pattern.compile(htmlTagPattern);
+        Matcher matcher = pattern.matcher(line);
+        return matcher.replaceAll("");
+    }
     public static void Run(String query) {
 
-        HashMap<String,Double> Results=new HashMap<String,Double>();
+        HashMap<String,Pair<Double,String>> Results=new HashMap<String,Pair<Double,String>>();
         String connectionString = "mongodb://localhost:27017"; // Change this according to your MongoDB server
 
         try {
@@ -41,32 +98,39 @@ public class Ranker {
                     // Iterate over the results
                     while (cursor.hasNext()) {
                         Document doc = cursor.next();
-                        String temp=doc.getString("file");
+                        String filePath = "C:\\Users\\kabou\\Desktop\\Nour\\UNI Tingz\\Junior\\Term 2\\APT\\Project\\Seif_Project"+"\\"+doc.getString("file");
+                        String line=findParagraphWithWord(filePath, subquery);
+                        String temp=doc.getString("Link");
                         Double cur=doc.getDouble("tf-idf");
                         Double priority= Double.valueOf(doc.getInteger("Priority"));
-                        Double pre=Results.get(temp);
+                        Pair<Double,String> pre=Results.get(temp);
                         if(pre!=null)
                         {
-                            Results.put(temp,cur+pre);
+                            Results.put(temp,new Pair<Double,String>(cur+pre.getFirst(),line));
                         }
                         else {
-                            Results.put(temp+priority,cur);
+                            Results.put(temp,new Pair<Double,String>(cur+1/(priority+10),line));
                         }
                     }
                 }
             }
 
-            Results.forEach((file,score)-> {
-                Document document = new Document("link", file);
-                for (Document doc : docscollection.find(document)) {
-                    score+=doc.getDouble("rank");
-                }
-                document=document.append("score", score)
-                        .append("title","title")
-                        .append("info","this is a paragraph");
+            Results.forEach((link,pair)-> {
+                Document document = new Document("link", link);
+                System.out.println(link);
+                Document doc = docscollection.find(document).first();
+                if(doc!=null) {
+                    pair.setFirst(pair.getFirst() + doc.getDouble("rank"));
+                    document = document.append("score", pair.getFirst())
+                            .append("title", doc.getString("title"))
+                            .append("info", pair.getSecond());
 
-                resultcollection.insertOne(document);
+                    resultcollection.insertOne(document);
+                }
             });
+
+
+            // Perform the aggregation with sorting
 
 
             // Print the latest name

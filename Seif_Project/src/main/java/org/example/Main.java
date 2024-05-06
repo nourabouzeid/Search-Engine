@@ -1,11 +1,15 @@
 package org.example;
 
 
+import java.io.FileNotFoundException;
+import java.io.FileWriter;
+import java.security.NoSuchAlgorithmException;
 import java.util.*;
 
 import com.mongodb.client.*;
 import org.bson.Document;
 import org.bson.conversions.Bson;
+import org.jsoup.Connection;
 import org.jsoup.Jsoup;
 import java.io.File;
 import java.io.IOException;
@@ -16,13 +20,15 @@ import static com.mongodb.client.model.Filters.*;
 import static com.mongodb.client.model.Projections.*;
 
 public class Main {
+
+
     public static MongoCollection<Document> collection;
     public static MongoCollection<Document> collection2;
     public static MongoCollection<Document> collection3;
     public static void main(String[] args)
     {
-        List<String> Documents= Arrays.asList("0.html","1.html");
-        List<String> Outputs= Arrays.asList("imdb.com","test.com");
+//        List<String> Documents= Arrays.asList("0.html","1.html");
+//        List<String> Outputs= Arrays.asList("imdb.com","test.com");
         String connectionString = "mongodb://localhost:27017";
         MongoDatabase database = null;
         MongoClient mongoClient = MongoClients.create(connectionString);
@@ -40,18 +46,38 @@ public class Main {
         collection3.deleteMany(new Document());
 //        Indexer x=new Indexer();
 //        x.setCollection(collection);
-        for(int i=0;i< Documents.size();i++) {
-            String inputFilePath=Documents.get(i);
-            String outputFilePath = Outputs.get(i);
+        Scanner scanner;
+        try {
+           scanner  = new Scanner(new File("Links.txt"));
+        } catch (FileNotFoundException e) {
+            throw new RuntimeException(e);
+        }
+        int counter =1;
+        String inputFilePath = null;
+        List<Thread> threads = new ArrayList<>();
+        while(scanner.hasNext()) {
+            inputFilePath = counter+".html";
+            String URL = scanner.next();
+            counter++;
+
+            Indexer x = new Indexer();
+            x.setLink(URL);
+            x.setFN(inputFilePath);
+            x.setCollection(collection);
+            x.setCollection2(collection2);
+            x.setCollection3(collection3);
+            Thread t = new Thread(x);
+            t.start();
+            threads.add(t);
+        }
+        for (Thread t : threads) {
             try {
-                org.jsoup.nodes.Document doc = Jsoup.parse(new File(inputFilePath), "UTF-8");
-                HTMLPreserver PRESERVER = new HTMLPreserver();
-                org.jsoup.nodes.Document preservedDoc = PRESERVER.preserveElements(doc);
-                PRESERVER.writeDocumentToFile(preservedDoc, outputFilePath);
-                System.out.println("Preservation completed. Output saved to: " + outputFilePath);
-            } catch (IOException e) {
-                e.printStackTrace();
+                t.join();
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
             }
+        }
+System.out.println("WE FONEEEE");
             //        x.setFN(outputFilePath);
             //        x.run();
             //        for(int i=0;i<6000;i++)
@@ -69,20 +95,12 @@ public class Main {
             //            t.start();
             //        }
 
-            Indexer x = new Indexer();
-            x.setFN(outputFilePath);
-            x.setCollection(collection);
-            x.setCollection2(collection2);
-            x.setCollection3(collection3);
 
-            Thread t = new Thread(x);
-            t.start();
-            try {
-                t.join();
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            }
-        }
+
+
+
+
+
 
         //idf
         List<Bson> pipeline = new ArrayList<>();
@@ -100,7 +118,7 @@ public class Main {
             int count = result.getInteger("count");
             if(category.equals("2019)"))
             System.out.println("Category: " + category + ", Count: " + count);
-            Double idf=Math.log((double) Documents.size() /count)+0.00001;
+            Double idf=Math.log((double) counter /count)+0.00001;
             Document document = new Document("word", category)
                     .append("idf", idf);
             collection3.insertOne(document);
@@ -113,32 +131,53 @@ public class Main {
             }
         }
 
-        //page rank
-        FindIterable<Document> documents = collection2.find();
+        //page rank test
+//        database.createCollection("Test");
+//        MongoCollection<Document> collectiont = database.getCollection("Test");
+//        collectiont.deleteMany(new Document());
+//        List<String> links=List.of("A","B","C","D");
+//        List<List<String>> links_links=List.of(
+//                List.of("B","C"),
+//            List.of("D"),
+//            List.of("A","B","D"),
+//            List.of("C")
+//    );
+//        for(int c=0;c<4;c++) {
+//            Document document = new Document("link", links.get(c))
+//                    .append("links", links_links.get(c));
+//            collectiont.insertOne(document);
+//        }
 
+        //end page rank test
+
+        FindIterable<Document> documents = collection2.find();
         int size=(int)collection2.countDocuments();
         Map<String, Integer> myMap = new HashMap<>();
         Node[] nodes=new Node[size];
         int i=0;
         for (Document document : documents) {
             Node node = new Node(); // Create a new Node object for each document
-            node.id = document.getString("file");
-            node.neighbours = (List<String>) document.get("link");
+            node.id = document.getString("link");
+            node.neighbours = (List<String>) document.get("links");
             node.in=new ArrayList<>();
-            node.rank=1/(double)size;
+            node.rank=0.1 ; //1/(double)size;
             node.links=node.neighbours.size();
             nodes[i] = node; // Assign the Node object to the array element
             myMap.put(node.id,i);
             i++;
         }
+        System.out.println("size of map"+i+"\nSize of nodes"+size);
         PageRank(nodes,myMap);
         for (Document document : documents) {
-            int j=myMap.get(document.getString("file"));
+            int j=myMap.get(document.getString("link"));
             Double rank=nodes[j].rank;
+            System.out.println(rank);
             Document update = new Document("$set", new Document("rank", rank));
             collection2.updateOne(document, update);
         }
     }
+
+
 
     public static void PageRank(Node[] nodes, Map<String, Integer> myMap)
     {
@@ -152,7 +191,7 @@ public class Main {
         }
         for(int i=0;i<2;i++)
         {
-            double[]ranks=new double[myMap.size()];
+            double[]ranks=new double[nodes.length];
             int j=0;
             for(Node node:nodes)
             {

@@ -7,6 +7,9 @@ import ca.rmen.porterstemmer.PorterStemmer;
 import com.mongodb.client.*;
 import com.sun.jdi.event.StepEvent;
 import org.bson.Document;
+import org.jsoup.Connection;
+import org.jsoup.Jsoup;
+
 public class Indexer implements Runnable{
     private static Set<String> stopWords = new HashSet<>();
     private static String removePunctuation(String text) {
@@ -43,14 +46,56 @@ public class Indexer implements Runnable{
     private MongoCollection<Document> collection2;
     private MongoCollection<Document> collection3;
     private  String FN;
+    private  String Link;
     public  void setFN (String fileName) {
         this.FN = fileName;
+    }
+    public  void setLink (String fileName) {
+        this.Link = fileName;
     }
     public  void setCollection(MongoCollection<Document>x) {this.collection=x;}
     public  void setCollection2(MongoCollection<Document>x) {this.collection2=x;}
     public  void setCollection3(MongoCollection<Document>x) {this.collection3=x;}
     //   "C:\\Users\\seif\\IdeaProjects\\Indexer\\src\\ComingFromCrawler.html"
+    private static String req(String link, String outputFilePath) {
+        try {
+            //MongoClient client = createConnection();
+            Connection con = Jsoup.connect(link);
+            org.jsoup.nodes.Document doc = con.get();
+            if (con.response().statusCode() == 200 ) {
+                String title = doc.title();
+                System.out.println(title);
+                saveHTMLToFile(doc,outputFilePath);
+                return title ;
+            }
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+        return "" ;
+    }
+    private static void saveHTMLToFile(org.jsoup.nodes.Document doc, String outputFilePath) throws IOException {
+        FileWriter writer = new FileWriter(outputFilePath);
+        writer.write(doc.outerHtml());
+        writer.close();
+        System.out.println("HTML content saved to: " + outputFilePath);
+    }
+    public static void downloadAndSaveHTML(String url, String outputFilePath) throws IOException {
+        org.jsoup.nodes.Document doc = Jsoup.connect(url).get();
+        saveHTMLToFile(doc, outputFilePath);
+    }
     public  void run() {
+        String title = req(Link,FN);
+        org.jsoup.nodes.Document doc = null;
+        try {
+            doc = Jsoup.parse(new File(FN), "UTF-8");
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+        HTMLPreserver PRESERVER = new HTMLPreserver();
+        org.jsoup.nodes.Document preservedDoc = PRESERVER.preserveElements(doc);
+        PRESERVER.writeDocumentToFile(preservedDoc, FN);
+        System.out.println("Preservation completed. Output saved to: " + FN);
+
         loadStopWords();
         hash=new MyHashMap<String,String , ObjectStoredInHashMap>();
         int position=0;
@@ -161,6 +206,7 @@ public class Indexer implements Runnable{
                     value.setTFInPercentage((float)value.getTF()/(float) finalTotalSize);
                     Document document = new Document("word", key)
                                 .append("file", FN)
+                                .append("Link",Link)
                                 .append("Priority",value.getPosition())
                                 .append("TF", value.getTF())
                                 .append("TF%",value.getTFInPercentage() * 100);
@@ -168,7 +214,9 @@ public class Indexer implements Runnable{
                 });
             });
             Document document = new Document("file", FN)
-                    .append("link",Links);
+                    .append("link",Link)
+                    .append("links",Links)
+                    .append("title",title);
             collection2.insertOne(document);
         }
     }

@@ -50,10 +50,27 @@ public class Stemmer extends HttpServlet {
         String pageParam = request.getParameter("page");
         int currentPage = (pageParam == null) ? 1 : Integer.parseInt(pageParam);
 
+        List<String> dbContents = new ArrayList<>(); //website title
+        List<String> links= new ArrayList<>();//URL
+        List<String> versions= new ArrayList<>(); //paragraph
+        try (MongoClient mongoClient = MongoClients.create("mongodb://localhost:27017")) {
+            MongoDatabase database = mongoClient.getDatabase("SearchEngine");
+            MongoCollection<Document> collection = database.getCollection("Results");
+            Document sortCriteria = new Document("score", -1); // Change "fieldName" to the name of the field you want to sort by
+
+            // Perform the query and sort the results
+            FindIterable<Document> results = collection.find().sort(sortCriteria);
+            for (Document doc : results) {
+                String title = doc.getString("title");
+                String link = doc.getString("link");
+                String info = doc.getString("info");
+                dbContents.add(title);
+                links.add(link);
+                versions.add(info);
+            }
+        }
         // Fetch the data for different fields
-        List<String> dbContents = fetchDatabaseContents("title");  //website title
-        List<String> links = fetchDatabaseContents("link");  //URL
-        List<String> versions = fetchDatabaseContents("info");  //paragraph
+
 
         int dataSize = Math.min(Math.min(dbContents.size(), links.size()), versions.size());
         int totalPages = (int) Math.ceil(dataSize / (double) PAGE_SIZE);
@@ -108,23 +125,7 @@ public class Stemmer extends HttpServlet {
         out.close();
     }
 
-    private List<String> fetchDatabaseContents(String fieldName) {
-        List<String> contents = new ArrayList<>();
-        try (MongoClient mongoClient = MongoClients.create("mongodb://localhost:27017")) {
-            MongoDatabase database = mongoClient.getDatabase("SearchEngine");
-            MongoCollection<Document> collection = database.getCollection("Results");
 
-            for (Document doc : collection.find()) {
-                String value = doc.getString(fieldName);
-                if (value != null) {
-                    contents.add(value);
-                } else {
-                    contents.add("Field not found");
-                }
-            }
-        }
-        return contents;
-    }
 
     private static void loadStopWords() {
         stopWords.clear(); // Clear previous stop words
