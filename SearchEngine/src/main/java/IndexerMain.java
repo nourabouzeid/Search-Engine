@@ -1,25 +1,20 @@
-package org.example;
+
 
 
 import java.io.FileNotFoundException;
-import java.io.FileWriter;
-import java.security.NoSuchAlgorithmException;
 import java.util.*;
 
 import com.mongodb.client.*;
 import org.bson.Document;
 import org.bson.conversions.Bson;
-import org.jsoup.Connection;
-import org.jsoup.Jsoup;
+
 import java.io.File;
-import java.io.IOException;
 
 import static com.mongodb.client.model.Accumulators.*;
 import static com.mongodb.client.model.Aggregates.*;
-import static com.mongodb.client.model.Filters.*;
 import static com.mongodb.client.model.Projections.*;
 
-public class Main {
+public class IndexerMain {
 
 
     public static MongoCollection<Document> collection;
