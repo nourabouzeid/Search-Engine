@@ -15,7 +15,7 @@ import java.util.Arrays;
 
 public class Stemmer extends HttpServlet {
     private static final int PAGE_SIZE = 10; // The maximum size for a page
-    private static Set<String> stopWords = new HashSet<>(); // Initialize with an empty set
+    public static Set<String> stopWords = new HashSet<>(); // Initialize with an empty set
 
     @Override
     protected void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {

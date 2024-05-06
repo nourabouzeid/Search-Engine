@@ -1,12 +1,10 @@
+import ca.rmen.porterstemmer.PorterStemmer;
 import com.mongodb.client.*;
 import com.mongodb.client.model.Aggregates;
 import org.bson.Document;
 
 import java.io.*;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Scanner;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -14,45 +12,49 @@ import org.bson.Document;
 import org.jsoup.Connection;
 import org.jsoup.Jsoup;
 public class Ranker {
-        public static String findParagraphWithWord(String filePath, String targetWord) {
-            StringBuilder paragraph = new StringBuilder();
-            boolean found = false;
+    public static String stemWord(String word) {
+        if (Stemmer.stopWords.contains(word.toLowerCase())) { // Check if the word is a stop word
+            return "-1"; // Indicates a stop word
+        }
 
-            try (BufferedReader br = new BufferedReader(new FileReader(filePath))) {
-                String line;
-                while ((line = br.readLine()) != null) {
+        PorterStemmer porterStemmer = new PorterStemmer(); // Create a new PorterStemmer instance
+        return porterStemmer.stemWord(word); // Return the stemmed word
+    }
+    private static String removePunctuation(String text) {
+        return text.replaceAll("[\\p{Punct}]", ""); // Removes punctuation
+    }
+    public static String findParagraphWithWord(String filePath, String targetWord) {
+        StringBuilder paragraph = new StringBuilder();
+        boolean found = false;
 
-                        String cleanLine = removeHtmlTags(line);
-                        String[] words = cleanLine.split("\\s+");
-                    if (words.length>10) {
-                        for(int i=0;i<words.length;i++)
-                        {
-                            if(words[i].equals(targetWord))
-                            {
-                                found = true;
-                                if(i<=20)
-                                {
-                                    int up= Math.min(words.length, 20);
-                                    for(int j=0;j<up;j++) {
-                                        paragraph.append(words[j]).append(" ");
-                                    }
-                                }
-                                else {
-                                    int up= Math.min(words.length, i+10);
-                                    for(int j=i-20;j<up;j++) {
-                                        paragraph.append(words[j]);
-                                    }
-                                }
-                                return paragraph.toString();
+        try (BufferedReader br = new BufferedReader(new FileReader(filePath))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                String cleanLine = removeHtmlTags(line);
+                String[] words = cleanLine.split("\\s+");
+                System.out.println(words+"\n"+targetWord);
+                if (words.length > 10) {
+                    for (int i = 0; i < words.length; i++) {
+                        if (removePunctuation(stemWord(words[i])).equals(targetWord)) {
+                            System.out.println("found "+words[i]);
+                            words[i]="<b>"+words[i]+"</b>";
+                            found = true;
+                            int start = Math.max(0, i - 20);
+                            int end = Math.min(words.length, i + 20);
+
+                            for (int j = start; j < end; j++) {
+                                paragraph.append(words[j]).append(" ");
                             }
+                            return paragraph.toString().trim();
                         }
                     }
                 }
-            } catch (IOException e) {
-                e.printStackTrace();
             }
-            return "The word '" + targetWord + "' was not found in the HTML file.";
+        } catch (IOException e) {
+            e.printStackTrace();
         }
+        return null;
+    }
 
     private static String removeHtmlTags(String line) {
         // Regular expression to match HTML tags
@@ -96,17 +98,20 @@ public class Ranker {
                 Document querydoc = new Document("word", subquery);
                 try (MongoCursor<Document> cursor = wcollection.find(querydoc).iterator()) {
                     // Iterate over the results
+                    String line=null;
                     while (cursor.hasNext()) {
                         Document doc = cursor.next();
-                        String filePath = "C:\\Users\\kabou\\Desktop\\Nour\\UNI Tingz\\Junior\\Term 2\\APT\\Project\\Seif_Project"+"\\"+doc.getString("file");
-                        String line=findParagraphWithWord(filePath, subquery);
+                        String filePath = "C:\\Users\\kabou\\Desktop\\Nour\\UNI Tingz\\Junior\\Term 2\\APT\\Project\\SearchEngine\\"+doc.getString("file");
+                        System.out.println(filePath);
+                        line=findParagraphWithWord(filePath, subquery);
                         String temp=doc.getString("Link");
                         Double cur=doc.getDouble("tf-idf");
                         Double priority= Double.valueOf(doc.getInteger("Priority"));
                         Pair<Double,String> pre=Results.get(temp);
                         if(pre!=null)
                         {
-                            Results.put(temp,new Pair<Double,String>(cur+pre.getFirst(),line));
+                            if(pre.getSecond()==null&&line!=null)
+                                Results.put(temp,new Pair<Double,String>(cur+pre.getFirst(),line));
                         }
                         else {
                             Results.put(temp,new Pair<Double,String>(cur+1/(priority+10),line));
