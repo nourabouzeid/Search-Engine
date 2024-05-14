@@ -6,6 +6,7 @@ public class ObjectStoredInHashMap {
     private Integer TF;
     private Float TFInPercentage;
     private int position;
+    private int place;
     private double idf;
 
     public void setTF(int x)
@@ -31,6 +32,14 @@ public class ObjectStoredInHashMap {
     public int getPosition()
     {
         return position;
+    }
+    public void setPlace(int x)
+    {
+        place =x;
+    }
+    public int getPlace()
+    {
+        return place;
     }
     public void setidf(double x)
     {

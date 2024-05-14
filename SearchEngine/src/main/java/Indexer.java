@@ -60,6 +60,8 @@ public class Indexer implements Runnable{
     private static String req(String link, String outputFilePath) {
         try {
             //MongoClient client = createConnection();
+            if(link.equals("the"))
+            System.out.println(link);
             Connection con = Jsoup.connect(link);
             org.jsoup.nodes.Document doc = con.get();
             if (con.response().statusCode() == 200 ) {
@@ -108,12 +110,12 @@ public class Indexer implements Runnable{
         while(FN==null);
         try (Scanner scanner = new Scanner(new File(FN)))
         {
-
+            int pos=0;
             while (scanner.hasNext()) {
                 String word = scanner.next();
 
 
-                if(word.equals("<h1>") ||  word.equals("<h2>") || word.equals("<h3>") || word.equals("<h4>") || word.equals("<h5>") || word.equals("<h6>")|| word.equals("<a") )
+                if(word.equals("<h1>") ||  word.equals("<h2>") || word.equals("<h3>") || word.equals("<h4>") || word.equals("<h5>") || word.equals("<h6>") )
                 {
                     if(position <=1)
                         position=1;
@@ -139,22 +141,11 @@ public class Indexer implements Runnable{
                     position=0;
                     continue;
                 }
-                if (!word.isEmpty())
+                word=removePunctuation(word);
+                word=stemWord(word);
+                if (!word.isEmpty()&&!word.equals("-1"))
                 {
-                    if(word.length()>11&&word.substring(0, 4).equals("href")) {
-                        if (word.length() > 11 && word.substring(6, 11).equals("https")) {
-                            word = word.substring(6, word.length() - 3);
-                            Links.add(word);
-                        }
-                        else
-                            continue;
-                    }
-
                     totalSize++;
-                    word=stemWord(word);
-                    word=removePunctuation(word);
-                    if(word.equals("1")||word.isEmpty())
-                        continue;
                     HashMap<String, ObjectStoredInHashMap> Temp = hash.get(word);
 
                     if(Temp == null)
@@ -162,6 +153,7 @@ public class Indexer implements Runnable{
                         ObjectStoredInHashMap Temp1 = new ObjectStoredInHashMap();
                         Temp1.setPosition(position);
                         Temp1.setTF(1);
+                        Temp1.setPlace(pos);
                         hash.put(word,FN,Temp1);
                     }
                     else
@@ -172,6 +164,7 @@ public class Indexer implements Runnable{
                             Temp1 = new ObjectStoredInHashMap();
                             Temp1.setPosition(position);
                             Temp1.setTF(1);
+                            Temp1.setPlace(pos);
                             Temp.put(FN,Temp1);
                             hash.put(word,FN,Temp1);
 
@@ -180,10 +173,12 @@ public class Indexer implements Runnable{
                         {
                             Temp1.setTF(Temp1.getTF()+1);
                             Temp1.setPosition(position);
+                            Temp1.setPlace(pos);
                             hash.update(word,FN,Temp1);
                         }
                     }
                 }
+                pos++;
             }
         } catch (FileNotFoundException e) {
             System.err.println("File not found: " + e.getMessage());
@@ -201,6 +196,18 @@ public class Indexer implements Runnable{
 
         if(totalSize!=0) {
             int finalTotalSize = totalSize;
+
+            Document query = new Document("link", Link);
+            FindIterable<Document> result = collection2.find(query).limit(1);
+            Document documents=null;
+            for (Document doc1 : result) {
+                documents=doc1;
+            }
+            Document documentn = new Document("file", FN)
+                    .append("title",title);
+            Document update = new Document("$set", documentn);
+            collection2.updateOne(documents, update);
+
             hash.forEachEntry((key, nestedMap) -> {
                 nestedMap.forEach((nestedKey, value) -> {
                     value.setTFInPercentage((float)value.getTF()/(float) finalTotalSize);
@@ -209,15 +216,12 @@ public class Indexer implements Runnable{
                                 .append("Link",Link)
                                 .append("Priority",value.getPosition())
                                 .append("TF", value.getTF())
-                                .append("TF%",value.getTFInPercentage() * 100);
+                                .append("TF%",value.getTFInPercentage() * 100)
+                                .append("Position",value.getPlace());
                         collection.insertOne(document);
                 });
             });
-            Document document = new Document("file", FN)
-                    .append("link",Link)
-                    .append("links",Links)
-                    .append("title",title);
-            collection2.insertOne(document);
+
         }
     }
 

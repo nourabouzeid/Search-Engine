@@ -8,4 +8,5 @@ public class Node {
     List<String> in;
     double rank;
     int links;
+    String title;
 }

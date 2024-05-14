@@ -1,5 +1,3 @@
-
-
 import com.mongodb.ConnectionString;
 import com.mongodb.MongoException;
 import org.jsoup.Jsoup;
@@ -8,6 +6,7 @@ import org.jsoup.nodes.Element;
 
 import java.io.*;
 import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -19,16 +18,17 @@ import com.mongodb.client.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 public class webCrawler implements Runnable {
-    private static final int maxDepth = 20;
+    private static final int maxDepth = 5;
     private Thread th;
     private String seed;
     private Vector<String> oldLinks = new Vector<String>();
     private static HashMap<String, String> oldBodies = new HashMap<>();
     private int id;
-    private static final String CRAWLER_DATABASE = "testDB";
+    private static final String CRAWLER_DATABASE = "SearchEngine";
     private static final String CONNECTION_STRING = "mongodb://localhost:27017";
     private MongoCollection<Document> documentCollection;
     private FileWriter Writer;
+    private  static final int MaxLinks = 7000;
 
     @Override
     public void run() {
@@ -65,15 +65,15 @@ public class webCrawler implements Runnable {
         }
     }
 
-    public static void insertURL(MongoClient client, String currentUrl) {
+    public static void insertURL(MongoClient client, String currentUrl , Set<String> set) {
         try {
             // Ensure connection is closed after use
             try (client) {
                 MongoDatabase database = client.getDatabase(CRAWLER_DATABASE);
-                MongoCollection<org.bson.Document> collection = database.getCollection("Crawler");
+                MongoCollection<org.bson.Document> collection = database.getCollection("MYDOCUMENTS");
                 // Create document to insert
                 org.bson.Document CrawlerDoc = new org.bson.Document();
-                CrawlerDoc.append("url", currentUrl);
+                CrawlerDoc.append("link", currentUrl).append("links",set);
                 collection.insertOne(CrawlerDoc);
             }
         } catch (MongoException e) {
@@ -92,11 +92,12 @@ public class webCrawler implements Runnable {
         }
     }
 
-    public webCrawler(String link, int idd, FileWriter myWriter) {
+    public webCrawler(String link, int idd, FileWriter myWriter, Vector<String>linkss) {
         System.out.print("webCrawler was made");
         seed = link;
         id = idd;
         Writer = myWriter;
+        oldLinks=linkss;
         th = new Thread(this);
         th.start();
     }
@@ -175,35 +176,50 @@ public class webCrawler implements Runnable {
 
     private Document req(String link) {
         try {
-            //MongoClient client = createConnection();
-            Connection con = Jsoup.connect(link);
+            if(oldLinks.size()>MaxLinks)
+                return null;
+            URL url = new URL(link); // Validate URL format
+            Connection con = Jsoup.connect(url.toString());
             Document doc = con.get();
-            if (con.response().statusCode() == 200 && isCrawlAllowed(link) && chkBody(link)) {
-                System.out.println("--> bot " + id + " has connected successfully to " + link);
+            if (con.response().statusCode() == 200 && isCrawlAllowed(String.valueOf(url)) && chkBody(String.valueOf(url))) {
+                System.out.println("--> bot " + id + " has connected successfully to " + url);
                 String title = doc.title();
                 System.out.println(title);
-                //insertURL(client, link);
-                Writer.write(link+"\n");
-                oldLinks.add(link);
+                Writer.write(url + "\n");
+                synchronized (oldLinks) {
+                    oldLinks.add(url.toString());
+                }
                 return doc;
             }
+        } catch (MalformedURLException e) {
+            System.out.println("--> bot " + id + "* received an invalid URL: " + link);
         } catch (IOException | NoSuchAlgorithmException e) {
-            throw new RuntimeException(e);
+            System.out.println("--> bot " + id + "* can not connect to* " + link);
         }
         return null;
     }
 
+
     private void Crawl(int depth, String seed) throws FileNotFoundException {
         File file = new File("C:\\Users\\karee\\OneDrive\\Documents\\school\\APT\\WebCrawler_ver1.1\\src\\seed.txt");
-        if (depth <= maxDepth) {
+        if (oldLinks.size()<MaxLinks && depth <= maxDepth) {
+            System.out.println("--> bot " + id + " q = " +oldLinks.size()) ;
+            System.out.println("*************") ;
             Document doc = req(seed);
             if (doc != null) {
+                Set<String> ConLinks = new HashSet<>();
                 for (Element link : doc.select("a[href]")) {
                     String new_link = link.absUrl("href");
+                    ConLinks.add(new_link);
                     if (!oldLinks.contains(new_link)) {
-                        Crawl(depth + 1, new_link); // Increment depth properly
+                        Crawl(depth + 1, new_link);
                     }
                 }
+                for (String element : ConLinks) {
+                    System.out.println(element);
+                }
+                MongoClient c = createConnection();
+                insertURL(c,seed,ConLinks);
             }
         }
     }

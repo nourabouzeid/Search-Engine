@@ -20,6 +20,7 @@ public class IndexerMain {
     public static MongoCollection<Document> collection;
     public static MongoCollection<Document> collection2;
     public static MongoCollection<Document> collection3;
+    public static MongoCollection<Document> collectionCount;
     public static void main(String[] args)
     {
 //        List<String> Documents= Arrays.asList("0.html","1.html");
@@ -29,41 +30,64 @@ public class IndexerMain {
         MongoClient mongoClient = MongoClients.create(connectionString);
         database = mongoClient.getDatabase("SearchEngine");
         database.runCommand(new Document("ping", 1));
-        String collectionString = "MYCOLLECTION";
-        database.createCollection(collectionString);
-        database.createCollection("MYDOCUMENTS");
-        database.createCollection("MYWORDS");
         collection = database.getCollection("MYCOLLECTION");
+        collectionCount = database.getCollection("Counter");
         collection2 = database.getCollection("MYDOCUMENTS");
         collection3 = database.getCollection("MYWORDS");
-        collection.deleteMany(new Document());
-        collection2.deleteMany(new Document());
+        //collection.deleteMany(new Document());
+        //collection2.deleteMany(new Document());
         collection3.deleteMany(new Document());
-//        Indexer x=new Indexer();
-//        x.setCollection(collection);
+        long counter =collectionCount.find().first().getLong("count");
+        AggregateIterable<Document> duplicates = collection2.aggregate(Arrays.asList(
+                new Document("$group", new Document("_id", "$link")
+                        .append("count", new Document("$sum", 1))
+                        .append("docs", new Document("$push", "$_id"))
+                ),
+                new Document("$match", new Document("count", new Document("$gt", 1)))
+        ));
+
+        // Step 2: Delete Duplicate Documents
+        for (Document doc : duplicates) {
+            @SuppressWarnings("unchecked")
+            ArrayList<String> docIds = doc.get("docs", ArrayList.class);
+            docIds.remove(0); // Keep one document, remove others
+            collection2.deleteMany(new Document("_id", new Document("$in", docIds)));
+        }
+
         Scanner scanner;
         try {
            scanner  = new Scanner(new File("Links.txt"));
         } catch (FileNotFoundException e) {
             throw new RuntimeException(e);
         }
-        int counter =1;
+
         String inputFilePath = null;
-        List<Thread> threads = new ArrayList<>();
+        Thread[] threads =new Thread[12];
         while(scanner.hasNext()) {
             inputFilePath = counter+".html";
             String URL = scanner.next();
+            //System.out.println(URL);
             counter++;
-
-            Indexer x = new Indexer();
-            x.setLink(URL);
-            x.setFN(inputFilePath);
-            x.setCollection(collection);
-            x.setCollection2(collection2);
-            x.setCollection3(collection3);
-            Thread t = new Thread(x);
-            t.start();
-            threads.add(t);
+            for(int i=0;i<12;i++)
+            {
+                if(counter%12==i)
+                {
+                    try {
+                        if(threads[i]!=null)
+                        threads[i].join();
+                    } catch (InterruptedException e) {
+                        throw new RuntimeException(e);
+                    }
+                    Indexer x=new Indexer();
+                    x.setLink(URL);
+                    x.setFN(inputFilePath);
+                    x.setCollection(collection);
+                    x.setCollection2(collection2);
+                    x.setCollection3(collection3);
+                    threads[i]=new Thread(x);
+                    threads[i].start();
+                }
+            }
         }
         for (Thread t : threads) {
             try {
@@ -73,26 +97,8 @@ public class IndexerMain {
             }
         }
 System.out.println("WE FONEEEE");
-            //        x.setFN(outputFilePath);
-            //        x.run();
-            //        for(int i=0;i<6000;i++)
-            //        {
-            //            Thread t = new Thread(new Main());
-            //            t.setName(String.valueOf(i));
-            //            t.start();
-            //        }
-            //        for(int i=0;i<6000;i++) {
-            //            Indexer x = new Indexer();
-            //            x.setFN(String.valueOf(i)+".html");
-            //            x.setCollection(collection);
-            //            Thread t = new Thread(x);
-            //            t.setName(String.valueOf(i));
-            //            t.start();
-            //        }
-
-
-
-
+        collectionCount.deleteMany(new Document());
+        collectionCount.insertOne(new Document("count",counter));
 
 
 
@@ -108,14 +114,14 @@ System.out.println("WE FONEEEE");
 
         // Output results
         for (Document result : results) {
+            System.out.println("AGGREGATED");
             String category = result.getString("_id");
             List<Document> documents = result.getList("documents", Document.class);
             int count = result.getInteger("count");
-            if(category.equals("2019)"))
-            System.out.println("Category: " + category + ", Count: " + count);
             Double idf=Math.log((double) counter /count)+0.00001;
             Document document = new Document("word", category)
                     .append("idf", idf);
+            System.out.println("WORD: "+category);
             collection3.insertOne(document);
             for(Document doc:documents)
             {
@@ -126,9 +132,9 @@ System.out.println("WE FONEEEE");
             }
         }
 
-        //page rank test
+       // page rank test
 //        database.createCollection("Test");
-//        MongoCollection<Document> collectiont = database.getCollection("Test");
+//        MongoCollection<Document> collectiont = database.getCollection("Test");    //send to mina
 //        collectiont.deleteMany(new Document());
 //        List<String> links=List.of("A","B","C","D");
 //        List<List<String>> links_links=List.of(
@@ -153,29 +159,56 @@ System.out.println("WE FONEEEE");
         for (Document document : documents) {
             Node node = new Node(); // Create a new Node object for each document
             node.id = document.getString("link");
+            node.title=document.getString("title");
             node.neighbours = (List<String>) document.get("links");
             node.in=new ArrayList<>();
-            node.rank=0.1 ; //1/(double)size;
+            node.rank=1/(double)size;
             node.links=node.neighbours.size();
             nodes[i] = node; // Assign the Node object to the array element
             myMap.put(node.id,i);
             i++;
         }
         System.out.println("size of map"+i+"\nSize of nodes"+size);
-        PageRank(nodes,myMap);
+        double max=PageRank(nodes,myMap);
         for (Document document : documents) {
-            int j=myMap.get(document.getString("link"));
-            Double rank=nodes[j].rank;
+            String templink=document.getString("link" );
+            int j=myMap.get(templink);
+            Double rank=nodes[j].rank/max;
+            String title=nodes[j].title;
             System.out.println(rank);
-            Document update = new Document("$set", new Document("rank", rank));
-            collection2.updateOne(document, update);
+            Document update1 = new Document("$set", new Document("rank", 1-rank));
+            collection2.updateOne(document, update1);
+            Document filter = new Document("Link", templink);
+
+            // Define the update to add a new attribute with a certain value
+            Document update = new Document("$set", new Document("rank", 1-rank).append("title",title));
+
+            // Update the matching documents
+            collection.updateMany(filter, update);
         }
     }
 
 
-
-    public static void PageRank(Node[] nodes, Map<String, Integer> myMap)
+    private static double diffandset(double[]ranks,Node[]nodes,double[] max) {
+        double sum = 0;
+//        double avg=0;
+//        for(double rank:ranks)
+//        {
+//            avg+=rank;
+//        }
+//        avg/= ranks.length;
+        for(int i=0;i<nodes.length;i++) {
+            sum += Math.abs(ranks[i] - nodes[i].rank);
+            nodes[i].rank=ranks[i];
+            if(ranks[i]>max[0])
+                max[0]=ranks[i];
+        }
+        return(Math.sqrt(sum));
+    }
+    public static double PageRank(Node[] nodes, Map<String, Integer> myMap)
     {
+        double[] max={-10};
+        double eps=0.001;
         for(Node node:nodes)
         {
             for(String neighbour:node.neighbours)
@@ -184,26 +217,27 @@ System.out.println("WE FONEEEE");
                     nodes[myMap.get(neighbour)].in.add(node.id);
             }
         }
-        for(int i=0;i<2;i++)
+    for (Node node:nodes)
+        System.out.println(node.in);
+        double diff = Double.MAX_VALUE;
+        double[]ranks=new double[nodes.length];
+
+        while(diff>eps)
         {
-            double[]ranks=new double[nodes.length];
+            double BETA=0.85;
             int j=0;
             for(Node node:nodes)
             {
-                ranks[j]=0;
+                ranks[j]=1-BETA;
                 for(String l:node.in)
                 {
-                    ranks[j]+=nodes[myMap.get(l)].rank/nodes[myMap.get(l)].links;
+                    ranks[j]+=BETA*nodes[myMap.get(l)].rank/nodes[myMap.get(l)].links;
                 }
                 j++;
             }
-            j=0;
-            for(Node node:nodes)
-            {
-                node.rank=ranks[j];
-                j++;
-            }
+            diff=diffandset(ranks,nodes,max);
         }
+        return max[0];
     }
 }
 
